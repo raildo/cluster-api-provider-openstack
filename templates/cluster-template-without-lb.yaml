@@ -47,13 +47,13 @@ spec:
       nodeRegistration:
         name: '{{ local_hostname }}'
         kubeletExtraArgs:
-          cloud-provider: openstack
+          cloud-provider: external
           cloud-config: /etc/kubernetes/cloud.conf
     clusterConfiguration:
       imageRepository: k8s.gcr.io
       apiServer:
         extraArgs:
-          cloud-provider: openstack
+          cloud-provider: external
           cloud-config: /etc/kubernetes/cloud.conf
         extraVolumes:
         - name: cloud
@@ -62,7 +62,7 @@ spec:
           readOnly: true
       controllerManager:
         extraArgs:
-          cloud-provider: openstack
+          cloud-provider: external
           cloud-config: /etc/kubernetes/cloud.conf
         extraVolumes:
         - name: cloud
@@ -78,7 +78,7 @@ spec:
         name: '{{ local_hostname }}'
         kubeletExtraArgs:
           cloud-config: /etc/kubernetes/cloud.conf
-          cloud-provider: openstack
+          cloud-provider: external
     files:
     - path: /etc/kubernetes/cloud.conf
       owner: root
@@ -169,7 +169,7 @@ spec:
           name: '{{ local_hostname }}'
           kubeletExtraArgs:
             cloud-config: /etc/kubernetes/cloud.conf
-            cloud-provider: openstack
+            cloud-provider: external
 ---
 apiVersion: v1
 kind: Secret
