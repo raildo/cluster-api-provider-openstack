@@ -214,7 +214,7 @@ spec:
 
 ## Ports
 
-A server can also be connected to networks by describing what ports to create. Describing a server's connection with `ports` allows for finer and more advanced configuration. For example, you can specify per-port security groups, fixed IPs or VNIC type.
+A server can also be connected to networks by describing what ports to create. Describing a server's connection with `ports` allows for finer and more advanced configuration. For example, you can specify per-port security groups, fixed IPs, VNIC type or profile.
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
@@ -232,9 +232,28 @@ spec:
       ipAddress: <your-fixed-ip>
     securityGroups:
     - <your-security-group-id>
+    profile:
+      capabilities:
+        - <capability>
 ```
 
 Any such ports are created in addition to ports used for connections to networks or subnets.
+
+Also, `port security` can be applied to specific port to enable/disable the `port security` on that port; When not set, it takes the value of the corresponding field at the network level.
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+kind: OpenStackMachine
+metadata:
+  name: <cluster-name>-controlplane
+  namespace: <cluster-name>
+spec:
+  ports:
+  - networkId: <your-network-id>
+    ...
+    disablePortSecurity: true
+    ...
+```
 
 ## Tagging
 
@@ -251,7 +270,8 @@ spec:
   - cluster-tag
 ```
 
-To tag resources specific to a machine, add a value to the tags field in `controlplane.yaml` and `machinedeployment.yaml` like this:
+To tag 
+resources specific to a machine, add a value to the tags field in `controlplane.yaml` and `machinedeployment.yaml` like this:
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
