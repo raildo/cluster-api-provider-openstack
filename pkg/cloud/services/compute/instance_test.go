@@ -69,7 +69,7 @@ func Test_getPortName(t *testing.T) {
 		},
 		{
 			name: "with PortOpts name suffix",
-			args: args{"test-1-instance", &infrav1.PortOpts{NameSuffix: "foo2", NetworkID: "bar", DisablePortSecurity: pointer.Bool(true)}, 4},
+			args: args{"test-1-instance", &infrav1.PortOpts{NameSuffix: "foo2", Network: &infrav1.NetworkFilter{ID: "bar"}, DisablePortSecurity: pointer.Bool(true)}, 4},
 			want: "test-1-instance-foo2",
 		},
 	}
@@ -140,7 +140,7 @@ func TestService_getServerNetworks(t *testing.T) {
 
 	// Define arbitrary test network and subnet filters for use in multiple tests,
 	// the gophercloud ListOpts they should translate to, and the arbitrary returned networks/subnets.
-	testNetworkFilter := infrav1.Filter{Tags: testClusterTag}
+	testNetworkFilter := infrav1.NetworkFilter{Tags: testClusterTag}
 	testNetworkListOpts := networks.ListOpts{Tags: testClusterTag}
 	testSubnetFilter := infrav1.SubnetFilter{Tags: testClusterTag}
 	testSubnetListOpts := subnets.ListOpts{Tags: testClusterTag}
@@ -667,8 +667,7 @@ func TestService_CreateInstance(t *testing.T) {
 
 				computeRecorder.ListImages(images.ListOpts{Name: imageName}).Return(nil, fmt.Errorf("test error"))
 
-				// FIXME: This should cleanup ports
-				// expectCleanupDefaultPort(networkRecorder)
+				expectCleanupDefaultPort(networkRecorder)
 			},
 			wantErr: true,
 		},
@@ -683,8 +682,7 @@ func TestService_CreateInstance(t *testing.T) {
 				computeRecorder.ListImages(images.ListOpts{Name: imageName}).Return([]images.Image{{ID: imageUUID}}, nil)
 				computeRecorder.GetFlavorIDFromName(flavorName).Return("", fmt.Errorf("test error"))
 
-				// FIXME: This should cleanup ports
-				// expectCleanupDefaultPort(networkRecorder)
+				expectCleanupDefaultPort(networkRecorder)
 			},
 			wantErr: true,
 		},
@@ -700,6 +698,32 @@ func TestService_CreateInstance(t *testing.T) {
 				expectCreateServer(computeRecorder, getDefaultServerMap(), true)
 
 				// Make sure we delete ports
+				expectCleanupDefaultPort(networkRecorder)
+			},
+			wantErr: true,
+		},
+		{
+			name:                "Delete previously created ports on port creation error",
+			getMachine:          getDefaultMachine,
+			getOpenStackCluster: getDefaultOpenStackCluster,
+			getOpenStackMachine: func() *infrav1.OpenStackMachine {
+				m := getDefaultOpenStackMachine()
+				m.Spec.Ports = []infrav1.PortOpts{
+					{Description: "Test port 0"},
+					{Description: "Test port 1"},
+				}
+				return m
+			},
+			expect: func(computeRecorder *MockClientMockRecorder, networkRecorder *mock_networking.MockNetworkClientMockRecorder) {
+				expectCreateDefaultPort(networkRecorder)
+
+				// Looking up the second port fails
+				networkRecorder.ListPort(ports.ListOpts{
+					Name:      "test-openstack-machine-1",
+					NetworkID: networkUUID,
+				}).Return(nil, fmt.Errorf("test error"))
+
+				// We should cleanup the first port
 				expectCleanupDefaultPort(networkRecorder)
 			},
 			wantErr: true,

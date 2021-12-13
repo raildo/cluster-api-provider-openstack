@@ -27,9 +27,7 @@ import (
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/schedulerhints"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/openstack/imageservice/v2/images"
-	"github.com/gophercloud/gophercloud/openstack/networking/v2/networks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/ports"
-	"github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
@@ -147,9 +145,22 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 		if pOpts.Trunk == nil {
 			pOpts.Trunk = &openStackMachine.Spec.Trunk
 		}
-		if port.NetworkID != "" {
+		if port.Network != nil {
+			netID := port.Network.ID
+			if netID == "" {
+				netIDs, err := s.networkingService.GetNetworkIDsByFilter(port.Network.ToListOpt())
+				if err != nil {
+					return nil, err
+				}
+				if len(netIDs) > 1 {
+					return nil, fmt.Errorf("network filter for port %s returns more than one result", port.NameSuffix)
+				} else if len(netIDs) == 0 {
+					return nil, fmt.Errorf("network filter for port %s returns no networks", port.NameSuffix)
+				}
+				netID = netIDs[0]
+			}
 			nets = append(nets, infrav1.Network{
-				ID:       port.NetworkID,
+				ID:       netID,
 				Subnet:   &infrav1.Subnet{},
 				PortOpts: pOpts,
 			})
@@ -179,8 +190,20 @@ func (s *Service) constructNetworks(openStackCluster *infrav1.OpenStackCluster, 
 }
 
 func (s *Service) createInstance(eventObject runtime.Object, clusterName string, instanceSpec *InstanceSpec, retryInterval time.Duration) (*InstanceStatus, error) {
+	var server *ServerExt
 	accessIPv4 := ""
 	portList := []servers.Network{}
+
+	// Ensure we delete the ports we created if we haven't created the server.
+	defer func() {
+		if server != nil {
+			return
+		}
+
+		if err := s.deletePorts(eventObject, portList); err != nil {
+			s.logger.V(4).Error(err, "failed to clean up ports after failure", "cluster", clusterName, "machine", instanceSpec.Name)
+		}
+	}()
 
 	for i, network := range instanceSpec.Networks {
 		if network.ID == "" {
@@ -208,9 +231,6 @@ func (s *Service) createInstance(eventObject runtime.Object, clusterName string,
 	}
 
 	if instanceSpec.Subnet != "" && accessIPv4 == "" {
-		if err := s.deletePorts(eventObject, portList); err != nil {
-			return nil, err
-		}
 		return nil, fmt.Errorf("no ports with fixed IPs found on Subnet %q", instanceSpec.Subnet)
 	}
 
@@ -242,16 +262,12 @@ func (s *Service) createInstance(eventObject runtime.Object, clusterName string,
 
 	serverCreateOpts = applyServerGroupID(serverCreateOpts, instanceSpec.ServerGroupID)
 
-	server, err := s.computeService.CreateServer(keypairs.CreateOptsExt{
+	server, err = s.computeService.CreateServer(keypairs.CreateOptsExt{
 		CreateOptsBuilder: serverCreateOpts,
 		KeyName:           instanceSpec.SSHKeyName,
 	})
 	if err != nil {
-		serverErr := err
-		if err = s.deletePorts(eventObject, portList); err != nil {
-			return nil, fmt.Errorf("error creating OpenStack instance: %v, error deleting ports: %v", serverErr, err)
-		}
-		return nil, fmt.Errorf("error creating Openstack instance: %v", serverErr)
+		return nil, fmt.Errorf("error creating Openstack instance: %v", err)
 	}
 
 	instanceCreateTimeout := getTimeout("CLUSTER_API_OPENSTACK_INSTANCE_CREATE_TIMEOUT", timeoutInstanceCreate)
@@ -351,7 +367,7 @@ func (s *Service) getServerNetworks(networkParams []infrav1.NetworkParam) ([]inf
 
 				addSubnet(netID, subnet.UUID)
 			} else {
-				subnetOpts := subnets.ListOpts(subnet.Filter)
+				subnetOpts := subnet.Filter.ToListOpt()
 				if netID != "" {
 					subnetOpts.NetworkID = netID
 				}
@@ -374,13 +390,13 @@ func (s *Service) getServerNetworks(networkParams []infrav1.NetworkParam) ([]inf
 		// If there is no explicit network UUID and no network filter,
 		// we will look for subnets matching any given subnet filters in
 		// all networks.
-		if networkParam.UUID != "" || networkParam.Filter == (infrav1.Filter{}) {
+		if networkParam.UUID != "" || networkParam.Filter == (infrav1.NetworkFilter{}) {
 			if err := addSubnets(networkParam, networkParam.UUID); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		opts := networks.ListOpts(networkParam.Filter)
+		opts := networkParam.Filter.ToListOpt()
 		ids, err := s.networkingService.GetNetworkIDsByFilter(&opts)
 		if err != nil {
 			return nil, err
