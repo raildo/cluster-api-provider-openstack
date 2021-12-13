@@ -22,13 +22,18 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack"
+	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/attributestags"
 	"github.com/gophercloud/utils/openstack/clientconfig"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/cloud/services/provider"
+	"sigs.k8s.io/cluster-api-provider-openstack/pkg/record"
 )
 
 const (
 	networkPrefix string = "k8s-clusterapi"
+	trunkResource string = "trunks"
+	portResource  string = "ports"
 )
 
 // Service interfaces with the OpenStack Networking API.
@@ -52,15 +57,9 @@ func NewService(providerClient *gophercloud.ProviderClient, clientOpts *clientco
 		return nil, fmt.Errorf("failed to get project id: authInfo must be set")
 	}
 
-	projectID := clientOpts.AuthInfo.ProjectID
-	if projectID == "" && clientOpts.AuthInfo.ProjectName != "" {
-		projectID, err = provider.GetProjectID(providerClient, clientOpts.AuthInfo.ProjectName)
-		if err != nil {
-			return nil, fmt.Errorf("error retrieveing project id: %v", err)
-		}
-	}
-	if projectID == "" {
-		return nil, fmt.Errorf("failed to get project id")
+	projectID, err := provider.GetProjectID(providerClient, clientOpts)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieveing project id: %v", err)
 	}
 
 	return &Service{
@@ -68,4 +67,33 @@ func NewService(providerClient *gophercloud.ProviderClient, clientOpts *clientco
 		client:    networkClient{serviceClient},
 		logger:    logger,
 	}, nil
+}
+
+// NewTestService returns a Service with no initialisation. It should only be used by tests.
+func NewTestService(projectID string, client NetworkClient, logger logr.Logger) *Service {
+	return &Service{
+		projectID: projectID,
+		client:    client,
+		logger:    logger,
+	}
+}
+
+// replaceAllAttributesTags replaces all tags on a neworking resource.
+// the value of resourceType must match one of the allowed constants: trunkResource or portResource.
+func (s *Service) replaceAllAttributesTags(eventObject runtime.Object, resourceType string, resourceID string, tags []string) error {
+	if resourceType != trunkResource && resourceType != portResource {
+		record.Warnf(eventObject, "FailedReplaceAllAttributesTags", "Invalid resourceType argument in function call")
+		panic(fmt.Errorf("invalid argument: resourceType, %s, does not match allowed arguments: %s or %s", resourceType, trunkResource, portResource))
+	}
+
+	_, err := s.client.ReplaceAllAttributesTags(resourceType, resourceID, attributestags.ReplaceAllOpts{
+		Tags: tags,
+	})
+	if err != nil {
+		record.Warnf(eventObject, "FailedReplaceAllAttributesTags", "Failed to replace all attributestags, %s: %v", resourceID, err)
+		return err
+	}
+
+	record.Eventf(eventObject, "SuccessfulReplaceAllAttributeTags", "Replaced all attributestags for %s with tags %s", resourceID, tags)
+	return nil
 }

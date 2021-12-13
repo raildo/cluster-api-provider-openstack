@@ -29,12 +29,8 @@ import (
 )
 
 type Service struct {
-	provider          *gophercloud.ProviderClient
 	projectID         string
-	computeClient     *gophercloud.ServiceClient
-	identityClient    *gophercloud.ServiceClient
-	networkClient     *gophercloud.ServiceClient
-	imagesClient      *gophercloud.ServiceClient
+	computeService    Client
 	networkingService *networking.Service
 	logger            logr.Logger
 }
@@ -52,13 +48,6 @@ const NovaMinimumMicroversion = "2.53"
 
 // NewService returns an instance of the compute service.
 func NewService(client *gophercloud.ProviderClient, clientOpts *clientconfig.ClientOpts, logger logr.Logger) (*Service, error) {
-	identityClient, err := openstack.NewIdentityV3(client, gophercloud.EndpointOpts{
-		Region: "",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create identity service client: %v", err)
-	}
-
 	computeClient, err := openstack.NewComputeV2(client, gophercloud.EndpointOpts{
 		Region: clientOpts.RegionName,
 	})
@@ -67,13 +56,6 @@ func NewService(client *gophercloud.ProviderClient, clientOpts *clientconfig.Cli
 	}
 	computeClient.Microversion = NovaMinimumMicroversion
 
-	networkingClient, err := openstack.NewNetworkV2(client, gophercloud.EndpointOpts{
-		Region: clientOpts.RegionName,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create networking service client: %v", err)
-	}
-
 	imagesClient, err := openstack.NewImageServiceV2(client, gophercloud.EndpointOpts{
 		Region: clientOpts.RegionName,
 	})
@@ -81,19 +63,15 @@ func NewService(client *gophercloud.ProviderClient, clientOpts *clientconfig.Cli
 		return nil, fmt.Errorf("failed to create image service client: %v", err)
 	}
 
+	computeService := serviceClient{computeClient, imagesClient}
+
 	if clientOpts.AuthInfo == nil {
-		return nil, fmt.Errorf("failed to get project id: authInfo must be set")
+		return nil, fmt.Errorf("authInfo must be set")
 	}
 
-	projectID := clientOpts.AuthInfo.ProjectID
-	if projectID == "" && clientOpts.AuthInfo.ProjectName != "" {
-		projectID, err = provider.GetProjectID(client, clientOpts.AuthInfo.ProjectName)
-		if err != nil {
-			return nil, fmt.Errorf("error retrieveing project id: %v", err)
-		}
-	}
-	if projectID == "" {
-		return nil, fmt.Errorf("failed to get project id")
+	projectID, err := provider.GetProjectID(client, clientOpts)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieveing project id: %v", err)
 	}
 
 	networkingService, err := networking.NewService(client, clientOpts, logger)
@@ -102,13 +80,9 @@ func NewService(client *gophercloud.ProviderClient, clientOpts *clientconfig.Cli
 	}
 
 	return &Service{
-		provider:          client,
 		projectID:         projectID,
-		identityClient:    identityClient,
-		computeClient:     computeClient,
-		networkClient:     networkingClient,
+		computeService:    computeService,
 		networkingService: networkingService,
-		imagesClient:      imagesClient,
 		logger:            logger,
 	}, nil
 }

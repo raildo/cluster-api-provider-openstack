@@ -25,7 +25,7 @@ import (
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/networks"
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/subnets"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1alpha4"
+	infrav1 "sigs.k8s.io/cluster-api-provider-openstack/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/metrics"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/record"
 	"sigs.k8s.io/cluster-api-provider-openstack/pkg/utils/names"
@@ -72,7 +72,10 @@ func (s *Service) ReconcileExternalNetwork(openStackCluster *infrav1.OpenStackCl
 
 	switch len(networkList) {
 	case 0:
-		return fmt.Errorf("external network not found")
+		// Not finding an external network is fine
+		openStackCluster.Status.ExternalNetwork = &infrav1.Network{}
+		s.logger.Info("No external network found - proceeding with internal network only")
+		return nil
 	case 1:
 		openStackCluster.Status.ExternalNetwork = &infrav1.Network{
 			ID:   networkList[0].ID,

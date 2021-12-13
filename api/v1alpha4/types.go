@@ -55,7 +55,9 @@ type SecurityGroupFilter struct {
 }
 
 type NetworkParam struct {
-	// The UUID of the network. Required if you omit the port attribute.
+	// Optional UUID of the network.
+	// If specified this will not be validated prior to server creation.
+	// Required if `Subnets` specifies a subnet by UUID.
 	UUID string `json:"uuid,omitempty"`
 	// A fixed IPv4 address for the NIC.
 	FixedIP string `json:"fixedIP,omitempty"`
@@ -85,10 +87,12 @@ type Filter struct {
 }
 
 type SubnetParam struct {
-	// The UUID of the network. Required if you omit the port attribute.
+	// Optional UUID of the subnet.
+	// If specified this will not be validated prior to server creation.
+	// If specified, the enclosing `NetworkParam` must also be specified by UUID.
 	UUID string `json:"uuid,omitempty"`
 
-	// Filters for optional network query
+	// Filters for optional subnet query
 	Filter SubnetFilter `json:"filter,omitempty"`
 }
 
@@ -147,6 +151,10 @@ type PortOpts struct {
 	// DisablePortSecurity enables or disables the port security when set.
 	// When not set, it takes the value of the corresponding field at the network level.
 	DisablePortSecurity *bool `json:"disablePortSecurity,omitempty"`
+
+	// Tags applied to the port (and corresponding trunk, if a trunk is configured.)
+	// These tags are applied in addition to the instance's tags, which will also be applied to the port.
+	Tags []string `json:"tags,omitempty"`
 }
 
 type FixedIP struct {
@@ -271,9 +279,6 @@ func (r SecurityGroupRule) Equal(x SecurityGroupRule) bool {
 type InstanceState string
 
 var (
-	// InstanceStateBuilding is the string representing an instance in a building state.
-	InstanceStateBuilding = InstanceState("BUILDING")
-
 	// InstanceStateActive is the string representing an instance in an active state.
 	InstanceStateActive = InstanceState("ACTIVE")
 
@@ -285,6 +290,9 @@ var (
 
 	// InstanceStateShutoff is the string representing an instance in a shutoff state.
 	InstanceStateShutoff = InstanceState("SHUTOFF")
+
+	// InstanceStateDeleted is the string representing an instance in a deleted state.
+	InstanceStateDeleted = InstanceState("DELETED")
 )
 
 // Bastion represents basic information about the bastion node.
